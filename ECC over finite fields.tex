@@ -1,0 +1,494 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{enumitem}
+\usepackage[backend=biber,style=numeric]{biblatex}
+\addbibresource{references.bib}
+\geometry{margin=2.5cm}
+
+
+\title{MATH3030 Project\\Elliptic Curves over Finite Fields and Cryptography}
+\author{Max Sharah}
+\date{7~June~2026}
+
+\begin{document}
+
+\maketitle
+\section{Introduction}
+Elliptic curve cryptography is a form of public-key cryptography based on the arithmetic of points on elliptic curves \cite{koblitz1987,trappe-washington2006,nist800186}. Its usefulness comes from a mathematical asymmetry: it is efficient to compute repeated additions of a point, but extremely difficult to reverse this process when the parameters are chosen correctly. This allows two people to communicate securely even when some information, such as public keys and curve parameters, is visible to everyone.
+
+In cryptography, elliptic curves are usually studied over finite fields rather than over the real numbers. This means that all coordinates and calculations are performed modulo a prime number. Although this removes the usual geometric picture of a smooth curve in the plane, it gives a finite algebraic structure suitable for computation. The points on the curve, together with a special point at infinity, form a finite abelian group. This group structure is what makes scalar multiplication and elliptic-curve Diffie--Hellman possible.
+
+This report develops the mathematical foundations behind a simplified elliptic-curve encryption scheme. It begins by describing how Alice and Bob can use elliptic-curve Diffie--Hellman to obtain a shared secret. It then explains elliptic curves over finite fields, the elliptic curve group law, scalar multiplication, cyclic subgroups, the elliptic curve discrete logarithm problem, base point selection, cofactors, and Hasse's bound. Finally, the report gives a worked example over \(\mathbb{F}_{101}\), showing explicitly how the abstract theory becomes a concrete computation.
+
+\section{A Simplified Elliptic-Curve Encryption Scheme}
+
+
+This section describes a simplified elliptic-curve encryption process. The main idea is that Alice and Bob first use elliptic-curve Diffie--Hellman to obtain the same shared point \(S\). They then use a hash of the \(x\)-coordinate of this point to create a mask for encrypting and decrypting the message.
+
+\subsection{Bob's Calculations}
+
+Let \(G\in E(\mathbb{F}_p)\) be a public base point of order \(n\). Alice chooses a private scalar
+\[1\leq k_A\leq n-1,\]
+and computes her public key
+\[A=k_AG.\]
+The point \(A\) is public, while the scalar \(k_A\) is kept private.
+
+Bob chooses an ephemeral private scalar
+\[1\leq k_B\leq n-1,\]
+and computes his ephemeral public key
+\[B=k_BG.\]
+The scalar \(k_B\) is called ephemeral because it is used for this encryption process and should not be reused.
+
+Bob then computes the shared point
+\[S=k_BA=k_B(k_AG)=(k_Ak_B)G.\]
+Using \(S\), Bob applies a cryptographic hash function to the \(x\)-coordinate of \(S\):
+\[H=h(x_S),\]
+where \(H\) is the encryption mask, \(h\) is the hash function, and \(x_S\) is the \(x\)-coordinate of the shared point \(S\).
+
+The hash function is used to turn information from the shared point into a bit string suitable for masking the message. The main security assumption is not that the hash output hides \(x_S\) by itself, but that an attacker who only sees the public data cannot compute the shared point \(S\) without solving the elliptic curve discrete logarithm problem. In particular, given \(G\) and \(A=k_AG\), it should be computationally infeasible to recover \(k_A\).
+
+For the XOR operation to be well-defined, the message \(m\) must be represented as a bit string of the same length as the mask \(H\). In this simplified scheme, we assume that \(m\) has the correct length. In a real cryptographic implementation, a key derivation function would be applied to information from the shared point \(S\), such as \(x_S\), to produce a key stream of the required length.
+
+Bob then uses the mask \(H\) to encrypt the message \(m\) by applying the XOR operation, denoted by \(\oplus\):
+\[C=H\oplus m.\]
+Bob sends the pair
+\[(B,C)\]
+publicly to Alice.
+
+\subsection{Alice's Calculations}
+
+Alice receives
+\[(B,C).\]
+Since Alice knows her private scalar \(k_A\), she computes the shared point
+\[S=k_AB=k_A(k_BG)=(k_Ak_B)G.\]
+This is the same shared point computed by Bob, since
+\[k_BA=k_B(k_AG)=(k_Ak_B)G=k_A(k_BG)=k_AB.\]
+Thus, Alice and Bob obtain the same point \(S\), even though Bob does not know Alice's private scalar \(k_A\), and Alice does not know Bob's ephemeral private scalar \(k_B\).
+
+Alice then computes the same encryption mask
+\[H=h(x_S)\]
+using the same hash function and the same shared point \(S\). She recovers the message by applying XOR again:
+\[m=H\oplus C.\]
+This works because XOR reverses itself when applied twice:
+\[H\oplus C=H\oplus(H\oplus m)=m.\]
+Therefore, Alice decrypts the hidden message \(m\).
+
+\section{Elliptic Curves over Finite Fields}
+
+In elliptic curve cryptography, curves are considered over a finite field rather than over the real numbers. Let \(p>3\) be prime, and let \(\mathbb{F}_p\) denote the field of integers modulo \(p\). An elliptic curve over \(\mathbb{F}_p\) can be written in short Weierstrass form as
+\[E: y^2 \equiv x^3 + ax + b \pmod p,\]
+where \(a,b \in \mathbb{F}_p\). The curve must be non-singular, meaning
+\[4a^3 + 27b^2 \not\equiv 0 \pmod p.\]
+This condition excludes curves with cusps or self-intersections, which would prevent the elliptic curve addition law from forming a well-defined group structure.
+
+The set of \(\mathbb{F}_p\)-rational points on \(E\) is
+\[E(\mathbb{F}_p)=\{(x,y) \in \mathbb{F}_p^2 : y^2 \equiv x^3 + ax + b \pmod p\}\cup\{\mathcal{O}\},\]
+where \(\mathcal{O}\) is the point at infinity. Therefore, a point on the curve is not an arbitrary coordinate pair, but a pair satisfying the curve equation modulo \(p\), together with \(\mathcal{O}\).
+
+This finite set forms the algebraic space used for elliptic curve cryptography. This finite-field formulation is standard in elliptic curve cryptography \cite{washington2008,trappe-washington2006}. All coordinates, slopes, and additions are computed modulo \(p\). Since arithmetic modulo a prime forms a field, every nonzero element has a multiplicative inverse, allowing the elliptic curve addition formulas to be applied algebraically over \(\mathbb{F}_p\).
+
+\section{The Elliptic Curve Group Law}
+
+The main reason elliptic curves are useful in cryptography is that their points can be given a group structure \cite{washington2008,mckean-moll1997}. For an elliptic curve
+\[E: y^2 \equiv x^3 + ax + b \pmod p,\]
+the elements of the group are the points in \(E(\mathbb{F}_p)\), together with the point at infinity \(\mathcal{O}\). The group operation is called point addition. Although this operation is inspired by the chord-and-tangent construction over the real numbers, in the finite-field setting it is implemented algebraically using modular arithmetic.
+
+Let
+\[P = (x_1,y_1), \qquad Q = (x_2,y_2)\]
+be points on \(E(\mathbb{F}_p)\). If \(P \neq Q\) and \(x_1 \not\equiv x_2 \pmod p\), define
+\[\lambda \equiv \frac{y_2-y_1}{x_2-x_1} \pmod p.\]
+Since arithmetic takes place in \(\mathbb{F}_p\), division by \(x_2-x_1\) means multiplication by its modular inverse:
+\[\frac{y_2-y_1}{x_2-x_1}\equiv(y_2-y_1)(x_2-x_1)^{-1}\pmod p.\]
+The sum \(P+Q=(x_3,y_3)\) is then defined by the following formulas, which are derived in Appendix A.1:
+\[x_3 \equiv \lambda^2 - x_1 - x_2 \pmod p,\]\[y_3 \equiv \lambda(x_1-x_3)-y_1 \pmod p.\]
+
+The formula is slightly different when adding a point to itself. If \(P=Q\), the operation is called point doubling. For \(P=(x_1,y_1)\) with \(y_1 \not\equiv 0 \pmod p\), define
+\[\lambda \equiv \frac{3x_1^2+a}{2y_1} \pmod p.\]
+Using the same coordinate formulas gives
+\[x_3 \equiv \lambda^2 - 2x_1 \pmod p,\]\[y_3 \equiv \lambda(x_1-x_3)-y_1 \pmod p.\]
+Here, division by \(2y_1\) is also interpreted as multiplication by the modular inverse of \(2y_1\) in \(\mathbb{F}_p\).
+
+The point at infinity \(\mathcal{O}\) acts as the identity element:
+\[P+\mathcal{O}=\mathcal{O}+P=P.\]
+Each point also has an inverse. If
+\[P=(x,y),\]
+then
+\[-P=(x,-y) \pmod p.\]
+This is because
+\[y^2 \equiv (-y)^2 \pmod p,\]
+so both \(P\) and \(-P\) lie on the same elliptic curve. Therefore,
+\[P+(-P)=\mathcal{O}.\]
+In particular, if two points have the same \(x\)-coordinate and opposite \(y\)-coordinates modulo \(p\), their sum is the point at infinity.
+
+With this operation, \(E(\mathbb{F}_p)\) forms a finite abelian group. The proof that point addition is associative is nontrivial, so this report uses the group structure as a standard established result in the theory of elliptic curves. What matters for cryptography is that the group operation is explicit and computable: given two curve points, their sum can be calculated using modular arithmetic. This makes repeated addition of a point possible, leading to scalar multiplication.
+
+\section{Scalar Multiplication and Cyclic Subgroups}
+
+The group law described above allows repeated addition of a fixed point. This repeated addition is the operation needed for elliptic curve cryptography.
+
+Let \(P \in E(\mathbb{F}_p)\). For a positive integer \(k\), scalar multiplication is defined by
+\[kP=\underbrace{P+P+\cdots+P}_{k\text{ times}}.\]
+Also,
+\[0P=\mathcal{O},\]
+where \(\mathcal{O}\) is the identity element of the elliptic curve group. Thus, scalar multiplication is repeated use of the elliptic curve group law. It is not ordinary multiplication of the coordinates. If
+\[P=(x,y),\]
+then \(kP\) does not mean
+\[(kx,ky).\]
+Instead, each multiple is obtained by applying the elliptic curve addition and doubling formulas:
+\[2P=P+P,\]
+\[3P=2P+P,\]
+\[4P=2(2P),\]
+and so on.
+
+For cryptographic use, \(k\) is usually a very large integer, so computing \(kP\) by adding \(P\) to itself \(k\) times would be inefficient. Instead, scalar multiplication is computed using a double-and-add method, analogous to repeated squaring in modular exponentiation. For example,
+\[13=8+4+1,\]
+so
+\[13P=8P+4P+P.\]
+This can be computed by repeated doubling:
+\[2P, \qquad 4P=2(2P), \qquad 8P=2(4P),\]
+followed by the required additions. Hence, the number of elliptic curve operations grows with the number of binary digits of \(k\), rather than with \(k\) itself.
+
+The multiples of a point \(P\) form a cyclic subgroup of \(E(\mathbb{F}_p)\):
+\[\langle P\rangle=\{0P,1P,2P,3P,\ldots\}.\]
+Since \(E(\mathbb{F}_p)\) is finite, the sequence of multiples of \(P\) must eventually repeat. Therefore, there is a smallest positive integer \(n\) such that \[nP=\mathcal{O}.\]
+This integer is called the order of \(P\), denoted
+\[\operatorname{ord}(P)=n.\]
+The cyclic subgroup generated by \(P\) is therefore
+\[\langle P\rangle=\{\mathcal{O},P,2P,\ldots,(n-1)P\},\]
+and it contains exactly \(n\) elements.
+
+In elliptic curve cryptography, a public point
+\[G\in E(\mathbb{F}_p)\]
+is chosen as a base point. A private key is an integer \(k\), and the corresponding public key is the elliptic curve point
+\[K=kG.\]
+The point \(G\) is not secret. Its purpose is to specify the cyclic subgroup
+\[\langle G\rangle\]
+in which the cryptographic operations take place. The security requirement is that \(\langle G\rangle\) should be very large. In practice, \(G\) is chosen to have large prime order. This ensures that many different private scalars produce many different public points before the sequence of multiples returns to \(\mathcal{O}\).
+
+The important asymmetry is that scalar multiplication is efficient to compute, but difficult to reverse. Given \(k\) and \(G\), it is computationally feasible to calculate
+\[K=kG.\]
+However, given only \(G\) and \(K\), it should be computationally infeasible to recover \(k\), provided \(G\) has been chosen from a sufficiently large subgroup. This one-way behaviour is the basis of elliptic curve public-key cryptography.
+
+\section{The Elliptic Curve Discrete Logarithm Problem}
+
+The security of elliptic curve cryptography is based on the difficulty of reversing scalar multiplication \cite{koblitz1987,trappe-washington2006}. Let \(G \in E(\mathbb{F}_p)\) be a public base point, and suppose that \(G\) has order \(n\). This means
+\[nG=\mathcal{O},\]
+and no smaller positive multiple of \(G\) is equal to \(\mathcal{O}\). The cyclic subgroup generated by \(G\) is
+\[\langle G\rangle=\{\mathcal{O},G,2G,\ldots,(n-1)G\}.\]
+
+A private key is an integer \(k\), usually chosen with
+\[1\leq k\leq n-1.\]
+The corresponding public key is the point
+\[K=kG.\]
+Computing \(K\) from \(k\) and \(G\) is efficient because scalar multiplication can be performed using double-and-add. The reverse problem is much harder.
+
+The elliptic curve discrete logarithm problem, abbreviated ECDLP, is the following problem:
+\[\text{Given }G\text{ and }K=kG,\text{ determine }k.\]
+Equivalently, given two points \(G,K \in E(\mathbb{F}_p)\), where \(K \in \langle G\rangle\), find the integer \(k\) such that
+\[K=kG.\]
+The integer \(k\) is called the discrete logarithm of \(K\) to the base \(G\) in the elliptic curve group.
+
+This is analogous to the ordinary discrete logarithm problem in a finite multiplicative group. In classical Diffie--Hellman, one works with powers
+\[g^k \pmod p.\]
+The forward operation is modular exponentiation. In elliptic curve cryptography, one instead works with scalar multiples
+\[kG.\]
+The analogy is therefore
+\[g^k \quad \longleftrightarrow \quad kG.\]
+In both cases, the forward operation is efficient, while the inverse problem is intended to be computationally infeasible for appropriately chosen parameters.
+
+The hardness of the ECDLP depends strongly on the subgroup generated by \(G\). If \(G\) has small order, then there are only a small number of possible multiples
+\[G,2G,3G,\ldots,(n-1)G,\]
+so an attacker could recover \(k\) by checking all possibilities. Therefore, \(n=\operatorname{ord}(G)\) must be very large. In practice, \(n\) is chosen to be a large prime, or to contain a large prime factor, so that the subgroup \(\langle G\rangle\) is resistant to known discrete logarithm attacks.
+
+This explains why the base point \(G\) is part of the public system parameters. The security does not depend on hiding \(G\). Instead, it depends on choosing \(G\) so that the cyclic subgroup
+\[\langle G\rangle\]
+has a sufficiently large order. The public key \(K=kG\) can be safely revealed because recovering \(k\) from \(G\) and \(K\) is assumed to be computationally infeasible.
+
+\section{Base Point Selection, Order, and Cofactor}
+
+In elliptic curve cryptography, the curve \(E\), the finite field \(\mathbb{F}_p\), and the base point \(G\) are public system parameters. The base point is not chosen arbitrarily: it must generate a subgroup whose order is large enough to make the elliptic curve discrete logarithm problem infeasible \cite{trappe-washington2006,nist800186}.
+
+Let
+\[G\in E(\mathbb{F}_p).\]
+The order of \(G\), denoted \(\operatorname{ord}(G)\), is the smallest positive integer \(n\) such that
+\[nG=\mathcal{O}.\]
+Thus, the cyclic subgroup generated by \(G\) is
+\[\langle G\rangle=\{\mathcal{O},G,2G,\ldots,(n-1)G\}.\]
+
+The order \(n\) is central to security. If \(n\) is small, an attacker can recover a private scalar by checking the possible multiples of \(G\). Therefore, in practice, \(G\) is chosen so that \(n\) is a very large prime. A prime-order subgroup avoids nontrivial smaller subgroups inside \(\langle G\rangle\), helping protect against attacks that exploit subgroup structure.
+
+The full elliptic curve group \(E(\mathbb{F}_p)\) may be larger than the subgroup generated by \(G\). Its total number of points is denoted
+\[\#E(\mathbb{F}_p).\]
+For standard elliptic curve domain parameters, this group order is commonly written as
+\[\#E(\mathbb{F}_p)=hn,\]
+where \(n=\operatorname{ord}(G)\) and \(h\) is the cofactor. Equivalently,
+\[h=\frac{\#E(\mathbb{F}_p)}{n}.\]
+By Lagrange's theorem, the order of a subgroup divides the order of the full group, so \(h\) is an integer.
+
+For cryptographic purposes, the ideal situation is that \(n\) is a very large prime and \(h\) is small. A small cofactor means that most of the group order lies in the large prime-order subgroup generated by \(G\). If the cofactor is large, the curve has additional small-subgroup structure that must be handled carefully, since attackers may try to force computations into a smaller subgroup.
+
+This clarifies what it means to choose a secure base point. The point \(G\) does not need to be secret or unique. Several points may generate suitable large prime-order subgroups. The important property is that the subgroup \(\langle G\rangle\) has sufficiently large prime order and a small cofactor relative to the full curve group.
+
+In summary, a suitable base point \(G\) should satisfy
+\[G\in E(\mathbb{F}_p), \qquad nG=\mathcal{O},\]
+where \(n\) is a large prime, and
+\[\#E(\mathbb{F}_p)=hn\]
+with small cofactor \(h\). These conditions ensure that scalar multiplication occurs in a subgroup where the elliptic curve discrete logarithm problem is computationally hard.
+
+\section{Point Counting and Hasse's Bound}
+
+The security of elliptic curve cryptography depends not only on the equation defining the curve, but also on the number of points on the curve over the finite field. For an elliptic curve
+\[E: y^2 \equiv x^3 + ax + b \pmod p,\]
+the group used in cryptography is
+\[E(\mathbb{F}_p)=\{(x,y)\in\mathbb{F}_p^2 : y^2 \equiv x^3+ax+b \pmod p\}\cup\{\mathcal{O}\}.\]
+Its size is denoted
+\[\#E(\mathbb{F}_p).\]
+
+A direct way to count the points is to test each possible value of \(x\in\mathbb{F}_p\). For each \(x\), one computes
+\[x^3+ax+b \pmod p\]
+and checks how many values of \(y\in\mathbb{F}_p\) satisfy
+\[y^2\equiv x^3+ax+b \pmod p.\]
+There may be no solutions, one solution, or two solutions for \(y\), depending on whether the right-hand side is a quadratic non-residue, zero, or a nonzero quadratic residue modulo \(p\). After all affine points have been counted, the point at infinity \(\mathcal{O}\) is added.
+
+For cryptographic curves, \(p\) is far too large for this direct method to be practical. In practice, efficient point-counting algorithms such as Schoof's algorithm and the Schoof--Elkies--Atkin method are used to compute \(\#E(\mathbb{F}_p)\) exactly without checking every possible \(x\)-value\cite{washington2008,schoof1985}. Nevertheless, the number of points is not arbitrary. Hasse's theorem states that
+\[\left|\#E(\mathbb{F}_p)-(p+1)\right|\leq 2\sqrt p.\]
+Equivalently,
+\[p+1-2\sqrt p\leq\#E(\mathbb{F}_p)\leq p+1+2\sqrt p.\]
+Thus, the number of points on an elliptic curve over \(\mathbb{F}_p\) is always close to \(p+1\).
+
+This bound is important because the order of the chosen base point \(G\) must divide the full group order \(\#E(\mathbb{F}_p)\). As discussed above, cryptographic parameters are usually chosen so that
+\[
+\#E(\mathbb{F}_p)=hn,
+\]
+where \(n=\operatorname{ord}(G)\) is a large prime and \(h\) is a small cofactor. Hasse's theorem does not by itself guarantee security, but it constrains the possible group orders and shows that the group size is approximately the same magnitude as \(p\).
+
+For example, if \(p\) is a large prime with approximately \(256\) bits, then Hasse's theorem implies that \(\#E(\mathbb{F}_p)\) is also approximately \(256\) bits. However, the precise factorisation of \(\#E(\mathbb{F}_p)\) still matters. A curve whose group order contains a large prime factor can support secure cryptographic subgroups, while a curve whose group order factors mostly into small primes would be insecure.
+
+Therefore, point counting is a crucial part of elliptic curve parameter selection. It allows one to verify that the chosen curve contains a subgroup of sufficiently large prime order and to compute the cofactor
+\[ h=\frac{\#E(\mathbb{F}_p)}{n}. \]
+Only after this group-order information is known can a suitable cryptographic base point \(G\) be selected.
+
+\section{Computational Exploration}
+
+As part of this project, I also wrote Python programs to test the elliptic curve theory computationally. The first program searched for points on curves of the form
+\[y^2 \equiv x^3+ax+b \pmod p,\]
+checked whether the curve was non-singular, counted the number of points, calculated point orders, and identified possible base points. This allowed me to verify computationally that the curve
+\[E:y^2\equiv x^3+x+32\pmod {101}\]
+has
+\[\#E(\mathbb{F}_{101})=101.\]
+Since this group order is prime, every non-identity point has order \(101\). In particular, the program helped confirm that \(G=(4,10)\) is a valid base point of order \(101\).
+
+The second program implemented the elliptic curve arithmetic used in the simplified encryption scheme. This included modular inverses, point addition, point doubling, scalar multiplication, shared-secret computation, XOR encryption, and decryption. Running this program confirmed that Alice and Bob obtain the same shared point from different private scalars, and that the encrypted message can be recovered by applying the same mask again.
+
+This computational work helped connect the abstract group theory to explicit calculations. It also showed why the example over \(\mathbb{F}_{101}\) is useful for learning but not secure in practice: the group has only \(101\) elements, so an attacker could test all possible private scalars by brute force.
+
+\section{Worked Example: A Curve over \texorpdfstring{\(\mathbb{F}_{101}\)}{F101}}
+
+To illustrate the previous concepts, consider the elliptic curve
+\[ E: y^2 \equiv x^3+x+32 \pmod {101}. \]
+Here
+\[p=101,\qquad a=1,\qquad b=32.\]
+
+Before using the curve, we check that it is non-singular. For a curve in short Weierstrass form
+\[y^2\equiv x^3+ax+b\pmod p,\]
+the non-singularity condition is
+\[4a^3+27b^2\not\equiv 0\pmod p.\]
+For this curve,
+\[4a^3+27b^2=4(1)^3+27(32)^2.\]
+Since
+\[32^2=1024,\]
+we have
+\[4+27(1024)=4+27648=27652.\]
+Reducing modulo \(101\),
+\[27652\equiv 79\pmod {101}.\]
+Since
+\[79\not\equiv 0\pmod {101},\]
+the curve is non-singular. Therefore, its points form an abelian group under the elliptic curve addition law.
+
+The set of points is
+\[E(\mathbb{F}_{101})=\{(x,y)\in\mathbb{F}_{101}^2:y^2\equiv x^3+x+32\pmod {101}\}\cup\{\mathcal{O}\}.\]
+To count these points directly, one checks each value of \(x\in\mathbb{F}_{101}\), computes
+\[x^3+x+32\pmod {101},\]
+and determines whether this value is a quadratic residue modulo \(101\). If it is a nonzero quadratic residue, there are two corresponding \(y\)-values. If it is \(0\), there is one corresponding \(y\)-value. If it is a quadratic non-residue, there are no corresponding \(y\)-values.
+
+Carrying out this point count gives
+\[\#E(\mathbb{F}_{101})=101.\]
+This also satisfies Hasse's bound. Since \(p=101\), Hasse's theorem gives
+\[101+1-2\sqrt{101}\leq\#E(\mathbb{F}_{101})\leq101+1+2\sqrt{101}.\]
+That is,
+\[102-2\sqrt{101}\leq\#E(\mathbb{F}_{101})\leq102+2\sqrt{101}.\]
+Since
+\[2\sqrt{101}\approx 20.1,\]
+we get approximately
+\[81.9\leq \#E(\mathbb{F}_{101})\leq 122.1.\]
+The computed value
+\[\#E(\mathbb{F}_{101})=101\]
+lies within this interval.
+
+Because the group has prime order \(101\), every non-identity point on the curve has order \(101\). This follows from Lagrange's theorem: the order of any subgroup must divide the order of the full group. Since
+\[\#E(\mathbb{F}_{101})=101\]
+is prime, the only possible subgroup orders are \(1\) and \(101\). The only point of order \(1\) is the identity point \(\mathcal{O}\). Therefore, every other point \(P\in E(\mathbb{F}_{101})\) satisfies
+\[\operatorname{ord}(P)=101.\]
+
+For example, the point
+\[G=(4,10)\]
+lies on the curve because
+\[10^2\equiv 100\pmod {101},\]
+while
+\[4^3+4+32=64+4+32=100.\]
+Thus
+\[10^2\equiv 4^3+4+32\pmod {101},\]
+so
+\[G=(4,10)\in E(\mathbb{F}_{101}).\]
+Since \(G\neq\mathcal{O}\), and the group has prime order \(101\), it follows that
+\[\operatorname{ord}(G)=101.\]
+Therefore,
+\[\langle G\rangle=E(\mathbb{F}_{101}).\]
+In this example, the base point \(G\) generates the entire elliptic curve group.
+
+This makes the curve useful as a toy model for elliptic curve cryptography. A private key is an integer
+\[1\leq k_A\leq 100,\]
+and the corresponding public key is
+\[A=k_AG.\]
+For instance, if Alice chooses
+\[k_A=17,\]
+then her public key is
+\[A=17G=(82,27).\]
+We can check that this is a valid curve point:
+\[27^2\equiv 729\equiv 22\pmod {101},\]
+and
+\[82^3+82+32\equiv 22\pmod {101}.\]
+Hence
+\[(82,27)\in E(\mathbb{F}_{101}).\]
+
+Similarly, if Bob chooses
+\[k_B=29,\]
+then Bob's public key is
+\[B=29G=(100,38).\]
+This point is also on the curve, since
+\[38^2\equiv 1444\equiv 30\pmod {101},\]
+and
+\[100^3+100+32\equiv 30\pmod {101}.\]
+
+The shared secret is obtained by scalar multiplication. Alice computes
+\[k_AB=17(29G),\]
+while Bob computes
+\[k_BA=29(17G).\]
+Since scalar multiplication takes place in an abelian group,
+\[17(29G)=29(17G)=(17\cdot 29)G.\]
+Now
+\[17\cdot 29=493.\]
+Because \(G\) has order \(101\), 
+\[493G=89G,\]
+since
+\[493\equiv 89\pmod {101}.\]
+Computing this multiple gives
+\[89G=(24,89).\]
+Therefore, Alice and Bob obtain the same shared point
+\[S=(24,89).\]
+This point also satisfies the curve equation:
+\[89^2\equiv 7921\equiv 43\pmod {101},\]
+and
+\[24^3+24+32\equiv 43\pmod {101}.\]
+
+This example demonstrates the essential mechanism of elliptic curve key exchange. The public data may include
+\[p=101,\qquad E:y^2\equiv x^3+x+32\pmod {101},\qquad G=(4,10),\]
+as well as the public keys
+\[A=(82,27),\qquad B=(100,38).\]
+However, recovering Alice's private key \(k_A=17\) from \(G\) and \(A=17G\) would require solving the elliptic curve discrete logarithm problem. In this toy example, the group is far too small to be secure, since an attacker could simply test all \(100\) possible private keys. Real cryptographic curves use groups whose prime order is large enough to make this exhaustive search computationally infeasible.
+
+\section{Conclusion}
+
+This report has developed the mathematical foundations of elliptic curve cryptography over finite fields. The main structure is the finite abelian group \(E(\mathbb{F}_p)\), whose operation is point addition. Scalar multiplication \(kG\) is repeated point addition and can be computed efficiently using methods such as double-and-add. The security of elliptic curve cryptography comes from the difficulty of reversing this operation: given \(G\) and \(K=kG\), recovering \(k\) is the elliptic curve discrete logarithm problem.
+
+The worked example over \(\mathbb{F}_{101}\) showed these ideas explicitly. The curve
+\[E:y^2\equiv x^3+x+32\pmod {101}\]
+was checked to be non-singular, and its group order was found to be
+\[\#E(\mathbb{F}_{101})=101.\]
+Since this order is prime, every non-identity point has order \(101\), including the chosen base point \(G=(4,10)\). This made it possible to demonstrate elliptic-curve Diffie--Hellman concretely: Alice and Bob used different private scalars but obtained the same shared point \(S=(24,89)\).
+
+The example also shows the limitation of a toy model. A group of order \(101\) is far too small for real cryptography, since an attacker could simply test all possible private scalars. Real elliptic curve systems use much larger finite fields and base points of large prime order, making exhaustive search computationally infeasible.
+
+There are several natural further directions from this project. One direction is to study real elliptic curve parameters, such as those used in standardised curves, and compare them with the small example used here. Another is to examine how practical encryption schemes use key derivation functions and authenticated encryption rather than a bare XOR mask. A further direction is to investigate efficient point-counting algorithms, such as Schoof's algorithm and the Schoof--Elkies--Atkin method, which allow \(\#E(\mathbb{F}_p)\) to be computed for cryptographic-size fields. Finally, implementation security issues such as public-key validation, small-subgroup attacks, and side-channel resistance are important for understanding how the mathematics is safely used in real systems.
+
+\printbibliography
+
+\appendix
+\section{Appendix}
+\subsection{Derivation of the Elliptic Curve Point Addition Formula}
+
+Let \(E\) be an elliptic curve over a field \(F\) of characteristic not equal to \(2\) or \(3\), written in short Weierstrass form as
+\[ E: y^2 = x^3 + ax + b. \]
+The same algebraic derivation applies over a finite field \(\mathbb{F}_p\), provided all arithmetic is interpreted modulo \(p\) and the denominators used below are nonzero.
+
+Let \[P=(x_1,y_1), \qquad Q=(x_2,y_2)\]
+be two distinct points on \(E\), with \(x_1 \neq x_2\). The line passing through \(P\) and \(Q\) has slope
+\[\lambda = \frac{y_2-y_1}{x_2-x_1},\]
+and equation
+\[y = \lambda(x-x_1)+y_1.\]
+Equivalently,
+\[y = \lambda x + \nu,\]
+where
+\[\nu = y_1-\lambda x_1.\]
+
+To find the points where this line intersects the elliptic curve, substitute
+\[y = \lambda x+\nu\]
+into
+\[y^2 = x^3 + ax + b.\]
+This gives
+\[(\lambda x+\nu)^2 = x^3 + ax + b.\]
+Expanding the left-hand side,
+\[\lambda^2x^2 + 2\lambda\nu x + \nu^2 = x^3 + ax + b.\]
+Moving all terms to one side gives the cubic equation
+\[x^3 - \lambda^2x^2 + (a-2\lambda\nu)x + (b-\nu^2)=0.\]
+The roots of this cubic are the \(x\)-coordinates of the intersection points between the line and the elliptic curve.
+
+Since the line passes through \(P\) and \(Q\), two of the roots are \(x_1\) and \(x_2\). Let the third root be \(x_R\), corresponding to the third intersection point
+\[R=(x_R,y_R).\]
+Therefore, the cubic polynomial has roots
+\[x_1, \qquad x_2, \qquad x_R.\]
+Thus it factors as
+\[(x-x_1)(x-x_2)(x-x_R).\]
+Expanding this factorisation gives
+\[(x-x_1)(x-x_2)(x-x_R)=x^3-(x_1+x_2+x_R)x^2+\cdots.\]
+But from the substituted cubic equation, the coefficient of \(x^2\) is
+\[-\lambda^2.\]
+Comparing the coefficients of \(x^2\), we obtain
+\[-(x_1+x_2+x_R)=-\lambda^2.\]
+Therefore,
+\[x_1+x_2+x_R=\lambda^2,\]
+and hence
+\[x_R=\lambda^2-x_1-x_2.\]
+
+The elliptic curve group law defines the sum \(P+Q\) to be the reflection of the third intersection point \(R\) across the \(x\)-axis. That is,
+\[P+Q=-R.\]
+Since reflection across the \(x\)-axis changes \(y_R\) to \(-y_R\) but leaves the \(x\)-coordinate unchanged, the \(x\)-coordinate of \(P+Q\) is
+\[x_3=x_R=\lambda^2-x_1-x_2.\]
+
+It remains to compute the \(y\)-coordinate. Since \(R\) lies on the line through \(P\) and \(Q\),
+\[y_R=\lambda(x_R-x_1)+y_1.\]
+Because \(P+Q=-R\), the \(y\)-coordinate of \(P+Q\) is
+\[y_3=-y_R.\]
+Therefore,
+\[y_3=-\left(\lambda(x_R-x_1)+y_1\right).\]
+Using \(x_3=x_R\), this becomes
+\[y_3=-\lambda(x_3-x_1)-y_1.\]
+Equivalently,
+\[y_3=\lambda(x_1-x_3)-y_1.\]
+Hence, for \(P\neq Q\) and \(x_1\neq x_2\),
+\[P+Q=(x_3,y_3),\]
+where
+\[x_3=\lambda^2-x_1-x_2,\]
+and
+\[y_3=\lambda(x_1-x_3)-y_1.\]
+
+Over a finite field \(\mathbb{F}_p\), the same formulas are used modulo \(p\):
+\[\lambda\equiv (y_2-y_1)(x_2-x_1)^{-1}\pmod p,\]
+\[x_3\equiv \lambda^2-x_1-x_2\pmod p,\]
+\[y_3\equiv \lambda(x_1-x_3)-y_1\pmod p.\]
+Here, \((x_2-x_1)^{-1}\) denotes the multiplicative inverse of \(x_2-x_1\) in \(\mathbb{F}_p\), which exists whenever
+\[x_1 \not\equiv x_2 \pmod p.\]
+\end{document}
